@@ -214,3 +214,13 @@ button:hover {
         color: rgba(255, 0, 0, 0.08);
     }
 }
+/* --- ESTILO PARA ASSINATURA DO RECEBEDOR --- */
+.assinatura-recebedor {
+    text-align: center;
+    margin-top: 50px; /* Aumenta o espaço para a assinatura */
+}
+
+.assinatura-recebedor p {
+    margin: 0;
+    font-size: 14px;
+}
