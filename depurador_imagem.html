@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Depurador de Imagem (Tesseract.js)</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; text-align: center; background-color: #f0f2f5; margin: 0;}
+        #image-upload { display: none; }
+        label { background-color: #007bff; color: white; padding: 15px 25px; border-radius: 5px; cursor: pointer; font-size: 1.2em; transition: background-color 0.2s;}
+        label:hover { background-color: #0056b3; }
+        #status { margin-top: 20px; font-size: 1.1em; color: #333; height: 30px;}
+    </style>
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+</head>
+<body>
+
+    <input type="file" id="image-upload" accept="image/*">
+    <label for="image-upload">Clique aqui para carregar a IMAGEM e depurar</label>
+    <p id="status"></p>
+
+    <script>
+        const imageUpload = document.getElementById("image-upload");
+        const statusEl = document.getElementById("status");
+
+        imageUpload.addEventListener("change", async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            statusEl.textContent = "Iniciando análise...";
+
+            try {
+                // Cria um worker do Tesseract para processar a imagem em segundo plano
+                const worker = await Tesseract.createWorker('por', 1, {
+                    logger: m => {
+                        // Esta função exibe o progresso do OCR em tempo real
+                        console.log(m);
+                        if (m.status === 'recognizing text') {
+                            const progress = (m.progress * 100).toFixed(2);
+                            statusEl.textContent = `Analisando texto... ${progress}%`;
+                        }
+                    },
+                });
+
+                // Executa o reconhecimento na imagem selecionada
+                const { data: { text } } = await worker.recognize(file);
+
+                // Exibe o resultado final no console para análise
+                console.log("--- INÍCIO DO TEXTO EXTRAÍDO DA IMAGEM ---");
+                console.log(text);
+                console.log("--- FIM DO TEXTO EXTRAÍDO DA IMAGEM ---");
+                
+                statusEl.textContent = "Análise concluída!";
+                alert("Texto extraído da imagem! Verifique o console do navegador (pressione F12).");
+
+                // Encerra o worker para liberar recursos
+                await worker.terminate();
+
+            } catch (error) {
+                console.error("Erro ao processar a imagem com Tesseract:", error);
+                statusEl.textContent = "Ocorreu um erro ao ler a imagem.";
+                alert("Ocorreu um erro. Verifique o console para mais detalhes.");
+            }
+        });
+    </script>
+</body>
+</html>

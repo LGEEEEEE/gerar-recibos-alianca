@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gerador de Comprovante de Pagamento</title>
     <link rel="stylesheet" href="style.css">
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
 </head>
 <body>
 
@@ -13,28 +15,28 @@
             <h2>Preencha os Dados do Pagamento</h2>
 
             <fieldset>
+                <legend>Anexar Comprovante (PDF ou Imagem)</legend>
+                <div id="drop-area">
+                    <div id="loading-spinner" class="hidden"></div>
+                    <p id="drop-area-text">Arraste e solte um PDF ou Imagem aqui, ou clique para selecionar. <br>Você também pode colar uma imagem (Ctrl+V).</p>
+                    <input type="file" id="fileElem" accept="image/*,application/pdf" style="display:none">
+                </div>
+            </fieldset>
+
+            <fieldset>
                 <legend>Valor e Devedor</legend>
                 <label for="valor">Valor (R$):</label>
                 <input type="text" id="valor" placeholder="Ex: 130,00">
                 <label for="devedor">Nome do Devedor:</label>
                 <input type="text" id="devedor" placeholder="Ex: ALIANCA SOLUCOES EM NEGOCIOS LTDA">
             </fieldset>
-
-            <fieldset>
-                <legend>Anexar Comprovante Original</legend>
-                <div id="drop-area">
-                    <p>Arraste e solte o arquivo de imagem aqui, ou clique para selecionar.</p>
-                    <p>Você também pode copiar a imagem e colar (Ctrl+V).</p>
-                    <input type="file" id="fileElem" accept="image/*" style="display:none">
-                </div>
-            </fieldset>
-
+            
             <fieldset>
                 <legend>Dados do Recebedor</legend>
                 <label for="nomeRecebedor">Nome:</label>
-                <input type="text" id="nomeRecebedor" value="">
+                <input type="text" id="nomeRecebedor" value="Client Co Servicos de Rede Nordeste">
                 <label for="cnpjRecebedor">CNPJ:</label>
-                <input type="text" id="cnpjRecebedor" value="">
+                <input type="text" id="cnpjRecebedor" value="53.420.564/0001-40">
                 <label for="instRecebedor">Instituição:</label>
                 <input type="text" id="instRecebedor" value="BCO SANTANDER (BRASIL) S.A">
             </fieldset>
@@ -52,60 +54,28 @@
                 <label for="instPagador">Instituição:</label>
                 <input type="text" id="instPagador" value="BCO DO BRASIL SA.">
             </fieldset>
-
+            
             <button id="gerarBtn">Gerar Comprovante</button>
         </div>
 
         <div class="recibo-wrapper">
-            <div class="recibo-container" id="reciboContainer">
+             <div class="recibo-container" id="reciboContainer">
                 <div class="pago-watermark">PAGO</div>
-                
                 <div class="recibo-body">
-                    
                     <div class="recibo-content">
-                        <div class="recibo-header">
-                            <h3>Comprovante de Pagamento</h3>
-                            <p>Pix</p>
-                        </div>
-                        <div class="recibo-valor">
-                            <h1>R$ <span id="reciboValor"></span></h1>
-                            <p>Pago em: <span id="reciboData"></span></p>
-                        </div>
-                        <div class="recibo-secao">
-                            <h4>Recebedor</h4>
-                            <p><strong>Nome:</strong> <span id="reciboNomeRecebedor"></span></p>
-                            <p><strong>CNPJ:</strong> <span id="reciboCnpjRecebedor"></span></p>
-                            <p><strong>Instituição:</strong> <span id="reciboInstRecebedor"></span></p>
-                        </div>
-                        <div class="recibo-secao">
-                            <h4>Pagador</h4>
-                            <p><strong>Nome:</strong> <span id="reciboNomePagador"></span></p>
-                            <p><strong>CNPJ:</strong> <span id="reciboCnpjPagador"></span></p>
-                            <p><strong>Agência:</strong> <span id="reciboAgenciaPagador"></span> | <strong>Conta:</strong> <span id="reciboContaPagador"></span></p>
-                            <p><strong>Instituição:</strong> <span id="reciboInstPagador"></span></p>
-                        </div>
-                        <div class="recibo-secao">
-                            <h4>Informações Adicionais</h4>
-                            <p><strong>Devedor:</strong> <span id="reciboDevedor"></span></p>
-                        </div>
-                        <div class="assinatura">
-                            <p>_____________________________________</p>
-                            <p>Assinatura Responsável Financeiro</p>
-                        </div>
+                        <div class="recibo-header"><h3>Comprovante de Pagamento</h3><p>Pix</p></div>
+                        <div class="recibo-valor"><h1>R$ <span id="reciboValor"></span></h1><p>Pago em: <span id="reciboData"></span></p></div>
+                        <div class="recibo-secao"><h4>Recebedor</h4><p><strong>Nome:</strong> <span id="reciboNomeRecebedor"></span></p><p><strong>CNPJ:</strong> <span id="reciboCnpjRecebedor"></span></p><p><strong>Instituição:</strong> <span id="reciboInstRecebedor"></span></p></div>
+                        <div class="recibo-secao"><h4>Pagador</h4><p><strong>Nome:</strong> <span id="reciboNomePagador"></span></p><p><strong>CNPJ:</strong> <span id="reciboCnpjPagador"></span></p><p><strong>Agência:</strong> <span id="reciboAgenciaPagador"></span> | <strong>Conta:</strong> <span id="reciboContaPagador"></span></p><p><strong>Instituição:</strong> <span id="reciboInstPagador"></span></p></div>
+                        <div class="recibo-secao"><h4>Informações Adicionais</h4><p><strong>Devedor:</strong> <span id="reciboDevedor"></span></p></div>
+                        <div class="assinatura"><p>_____________________________________</p><p>Assinatura Responsável Financeiro</p></div>
                     </div>
-
-                    <div class="recibo-image-area">
-                        <div id="comprovanteAnexadoContainer" class="hidden">
-                            <h4>Comprovante Original Anexado</h4>
-                            <img id="imagemComprovante" src="#" alt="Comprovante Anexado">
-                        </div>
-                    </div>
+                    <div class="recibo-image-area"><div id="comprovanteAnexadoContainer" class="hidden"><h4>Comprovante Original Anexado</h4><img id="imagemComprovante" src="#" alt="Comprovante Anexado"></div></div>
                 </div>
             </div>
             <button id="imprimirBtn" class="hidden">Imprimir / Salvar PDF</button>
         </div>
     </div>
-
     <script src="script.js"></script>
 </body>
 </html>

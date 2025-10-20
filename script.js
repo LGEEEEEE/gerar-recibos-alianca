@@ -1,127 +1,171 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // Botões e contêineres principais
+    // Configura o worker para o pdf.js
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js`;
+
+    // Elementos do DOM
     const gerarBtn = document.getElementById('gerarBtn');
     const imprimirBtn = document.getElementById('imprimirBtn');
     const reciboContainer = document.getElementById('reciboContainer');
-
-    // Elementos para upload de imagem
     const dropArea = document.getElementById('drop-area');
+    const dropAreaText = document.getElementById('drop-area-text');
     const fileElem = document.getElementById('fileElem');
+    const loadingSpinner = document.getElementById('loading-spinner');
     const comprovanteAnexadoContainer = document.getElementById('comprovanteAnexadoContainer');
     const imagemComprovante = document.getElementById('imagemComprovante');
 
-    // --- LÓGICA PARA UPLOAD DE IMAGEM (DRAG & DROP, CLICK, PASTE) ---
-
-    // Função para prevenir comportamentos padrões do navegador
-    const preventDefaults = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-    };
-
-    // Adiciona a classe de destaque ao arrastar sobre a área
+    // --- LÓGICA DE UPLOAD ---
+    const preventDefaults = e => { e.preventDefault(); e.stopPropagation(); };
     const highlight = () => dropArea.classList.add('highlight');
-    // Remove a classe de destaque
     const unhighlight = () => dropArea.classList.remove('highlight');
 
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropArea.addEventListener(eventName, preventDefaults, false);
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(e => dropArea.addEventListener(e, preventDefaults, false));
+    ['dragenter', 'dragover'].forEach(e => dropArea.addEventListener(e, highlight, false));
+    ['dragleave', 'drop'].forEach(e => dropArea.addEventListener(e, unhighlight, false));
+
+    dropArea.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]), false);
+    dropArea.addEventListener('click', () => fileElem.click());
+    fileElem.addEventListener('change', function() { handleFile(this.files[0]); });
+    document.addEventListener('paste', e => {
+        const file = e.clipboardData.files[0];
+        if (file) handleFile(file);
     });
 
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropArea.addEventListener(eventName, highlight, false);
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropArea.addEventListener(eventName, unhighlight, false);
-    });
-
-    // Lida com o arquivo solto na área
-    dropArea.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        handleFile(files[0]);
-    }, false);
-
-    // Permite selecionar o arquivo clicando na área
-    dropArea.addEventListener('click', () => {
-        fileElem.click();
-    });
-    fileElem.addEventListener('change', function() {
-        handleFile(this.files[0]);
-    });
-    
-    // Lida com a imagem colada (Ctrl+V)
-    document.addEventListener('paste', (e) => {
-        const items = e.clipboardData.items;
-        for (let i = 0; i < items.length; i++) {
-            if (items[i].type.indexOf('image') !== -1) {
-                const file = items[i].getAsFile();
-                handleFile(file);
-                // Informa ao usuário que a imagem foi colada
-                dropArea.innerHTML = '<p style="color: green; font-weight: bold;">Imagem colada com sucesso!</p>';
-                setTimeout(() => {
-                    dropArea.innerHTML = '<p>Arraste e solte o arquivo de imagem aqui, ou clique para selecionar.</p><p>Você também pode copiar a imagem e colar (Ctrl+V).</p>';
-                }, 2000);
-            }
-        }
-    });
-
-    // Função principal para processar o arquivo de imagem
     function handleFile(file) {
-        if (file && file.type.startsWith('image/')) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                imagemComprovante.src = e.target.result;
-                comprovanteAnexadoContainer.classList.remove('hidden');
-            };
-            reader.readAsDataURL(file);
+        if (!file) return;
+        setProcessingFeedback();
+        if (file.type === "application/pdf") {
+            handlePdfFile(file);
+        } else if (file.type.startsWith("image/")) {
+            handleImageFile(file);
         } else {
-            alert('Por favor, anexe um arquivo de imagem válido (JPG, PNG, etc).');
+            alert("Tipo de arquivo não suportado. Por favor, use PDF ou uma imagem.");
+            resetDropArea();
         }
     }
 
+    async function handleImageFile(file) {
+        const reader = new FileReader();
+        reader.onload = e => imagemComprovante.src = e.target.result;
+        reader.readAsDataURL(file);
+        comprovanteAnexadoContainer.classList.remove('hidden');
 
-    // --- LÓGICA PARA GERAR O COMPROVANTE ---
+        try {
+            const worker = await Tesseract.createWorker('por');
+            const { data: { text } } = await worker.recognize(file);
+            await worker.terminate();
+            parseTextAndFillForm(text);
+            setSuccessFeedback('Imagem lida com sucesso!');
+        } catch (error) {
+            console.error('Erro no OCR:', error);
+            setErrorFeedback('Erro ao ler a imagem.');
+        }
+    }
+
+    async function handlePdfFile(file) {
+        comprovanteAnexadoContainer.classList.add('hidden'); 
+        const reader = new FileReader();
+        reader.onload = async function() {
+            try {
+                const pdf = await pdfjsLib.getDocument({ data: this.result }).promise;
+                let fullText = '';
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    fullText += textContent.items.map(item => item.str).join('\n');
+                }
+                parseTextAndFillForm(fullText);
+                setSuccessFeedback('PDF lido com sucesso!');
+            } catch (error) {
+                console.error('Erro ao ler PDF:', error);
+                setErrorFeedback('Erro ao processar o PDF.');
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    }
+    
+    /**
+     * ATUALIZADO: Versão final com Regex flexíveis para PDF e Imagem/OCR.
+     */
+    function parseTextAndFillForm(text) {
+        console.log("Texto para análise:", text);
+
+        // Função auxiliar para extrair e limpar os dados
+        const extractData = (regex, sourceText = text) => {
+            const match = sourceText.match(regex);
+            return match ? match[1].trim() : '';
+        };
+
+        // --- EXPRESSÕES REGULARES UNIVERSAIS ---
+
+        const valorRegex = /R\$\s*([\d.,]+)/;
+        const recebedorNomeRegex = /Recebedor\n(.+)/;
+        // Procura por um CNPJ depois da palavra "Recebedor", não importando o que há no meio
+        const recebedorCnpjRegex = /Recebedor(?:.|\n)*?CNPJ\n([\d.\/\\-]+)/;
+        const pagadorNomeRegex = /Pagador\n(.+)/;
+        // Procura por um CNPJ depois da palavra "Pagador" e aceita erros de OCR
+        const pagadorCnpjRegex = /Pagador(?:.|\n)*?CNPJ\n([\d.,\/-]+)/;
+        const agenciaRegex = /Agência\n([\d-]+)/;
+        const contaRegex = /Conta\n([\d-]+)/;
+        const devedorRegex = /Devedor:\s*(.+)/;
+        const instPagadorRegex = /Pagador(?:.|\n)*?Instituição\n([\s\S]*?BCO DO BRASIL S\.A)/;
+
+
+        // --- Preenche o formulário ---
+        document.getElementById('valor').value = extractData(valorRegex);
+        document.getElementById('nomeRecebedor').value = extractData(recebedorNomeRegex);
+        document.getElementById('cnpjRecebedor').value = extractData(recebedorCnpjRegex);
+        document.getElementById('nomePagador').value = extractData(pagadorNomeRegex);
+
+        // Limpa o CNPJ do pagador de possíveis erros de OCR
+        let cnpjPagadorLimpo = extractData(pagadorCnpjRegex).replace(/[.,]/g, '').replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+        document.getElementById('cnpjPagador').value = cnpjPagadorLimpo;
+        
+        document.getElementById('agenciaPagador').value = extractData(agenciaRegex);
+        document.getElementById('contaPagador').value = extractData(contaRegex);
+        document.getElementById('devedor').value = extractData(devedorRegex);
+
+        // Lógica para Instituição do Pagador
+        const instPagadorMatch = extractData(instPagadorRegex);
+        if (instPagadorMatch) {
+             document.getElementById('instPagador').value = instPagadorMatch.split('\n').pop() || "BCO DO BRASIL S.A.";
+        }
+    }
+    
+    // --- Funções de Feedback e UI (sem alterações) ---
+    function setProcessingFeedback() {
+        dropArea.className = 'processing';
+        loadingSpinner.classList.remove('hidden');
+        dropAreaText.textContent = 'Processando arquivo...';
+    }
+
+    function setSuccessFeedback(message) {
+        dropArea.className = 'success';
+        loadingSpinner.classList.add('hidden');
+        dropAreaText.innerHTML = `<span style="color: #28a745; font-weight: bold;">${message}</span>`;
+    }
+    
+    function setErrorFeedback(message) {
+        dropArea.className = 'error';
+        loadingSpinner.classList.add('hidden');
+        dropAreaText.innerHTML = `<span style="color: #dc3545; font-weight: bold;">${message}</span>`;
+    }
 
     gerarBtn.addEventListener('click', () => {
-        // Captura os valores do formulário
-        const valor = document.getElementById('valor').value;
-        const devedor = document.getElementById('devedor').value;
-        const nomeRecebedor = document.getElementById('nomeRecebedor').value;
-        const cnpjRecebedor = document.getElementById('cnpjRecebedor').value;
-        const instRecebedor = document.getElementById('instRecebedor').value;
-        const nomePagador = document.getElementById('nomePagador').value;
-        const cnpjPagador = document.getElementById('cnpjPagador').value;
-        const agenciaPagador = document.getElementById('agenciaPagador').value;
-        const contaPagador = document.getElementById('contaPagador').value;
-        const instPagador = document.getElementById('instPagador').value;
-
-        // Formata a data atual
-        const hoje = new Date();
-        const dia = String(hoje.getDate()).padStart(2, '0');
-        const mes = String(hoje.getMonth() + 1).padStart(2, '0');
-        const ano = hoje.getFullYear();
-        const dataFormatada = `${dia}/${mes}/${ano}`;
-
-        // Preenche os dados no recibo
-        document.getElementById('reciboValor').textContent = valor;
-        document.getElementById('reciboData').textContent = dataFormatada;
-        document.getElementById('reciboNomeRecebedor').textContent = nomeRecebedor;
-        document.getElementById('reciboCnpjRecebedor').textContent = cnpjRecebedor;
-        document.getElementById('reciboInstRecebedor').textContent = instRecebedor;
-        document.getElementById('reciboNomePagador').textContent = nomePagador;
-        document.getElementById('reciboCnpjPagador').textContent = cnpjPagador;
-        document.getElementById('reciboAgenciaPagador').textContent = agenciaPagador;
-        document.getElementById('reciboContaPagador').textContent = contaPagador;
-        document.getElementById('reciboInstPagador').textContent = instPagador;
-        document.getElementById('reciboDevedor').textContent = devedor;
+        document.getElementById('reciboValor').textContent = document.getElementById('valor').value;
+        document.getElementById('reciboData').textContent = new Date().toLocaleDateString('pt-BR');
+        document.getElementById('reciboNomeRecebedor').textContent = document.getElementById('nomeRecebedor').value;
+        document.getElementById('reciboCnpjRecebedor').textContent = document.getElementById('cnpjRecebedor').value;
+        document.getElementById('reciboInstRecebedor').textContent = document.getElementById('instRecebedor').value;
+        document.getElementById('reciboNomePagador').textContent = document.getElementById('nomePagador').value;
+        document.getElementById('reciboCnpjPagador').textContent = document.getElementById('cnpjPagador').value;
+        document.getElementById('reciboAgenciaPagador').textContent = document.getElementById('agenciaPagador').value;
+        document.getElementById('reciboContaPagador').textContent = document.getElementById('contaPagador').value;
+        document.getElementById('reciboInstPagador').textContent = document.getElementById('instPagador').value;
+        document.getElementById('reciboDevedor').textContent = document.getElementById('devedor').value;
         
-        // Mostra o recibo e o botão de imprimir
         reciboContainer.style.display = 'block';
         imprimirBtn.classList.remove('hidden');
     });
     
-    imprimirBtn.addEventListener('click', () => {
-        window.print();
-    });
+    imprimirBtn.addEventListener('click', () => { window.print(); });
 });

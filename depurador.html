@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Depurador de Extração de PDF</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; }
+        #pdf-upload { display: none; }
+        label { background-color: #007bff; color: white; padding: 15px 25px; border-radius: 5px; cursor: pointer; font-size: 1.2em;}
+        #loading { margin-top: 20px; font-size: 1.1em; }
+    </style>
+</head>
+<body>
+
+    <input type="file" id="pdf-upload" accept=".pdf">
+    <label for="pdf-upload">Clique aqui para carregar o PDF e depurar</label>
+    <p id="loading" style="display:none;">Analisando o texto do PDF...</p>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+    <script>
+        // Configuração do worker para a biblioteca
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js`;
+
+        document.getElementById("pdf-upload").addEventListener("change", async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById("loading").style.display = "block";
+
+            const fileReader = new FileReader();
+            fileReader.onload = async function() {
+                try {
+                    const typedarray = new Uint8Array(this.result);
+                    const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                    let fullText = '';
+                    
+                    // Itera por todas as páginas do PDF
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        
+                        // Junta os itens de texto com quebra de linha para preservar a estrutura
+                        const pageText = textContent.items.map(item => item.str).join('\n');
+                        fullText += pageText + '\n\n--- FIM DA PÁGINA ' + i + ' ---\n\n';
+                    }
+
+                    // Exibe o resultado no console para análise
+                    console.log("--- INÍCIO DO TEXTO EXTRAÍDO DO PDF ---");
+                    console.log(fullText);
+                    console.log("--- FIM DO TEXTO EXTRAÍDO DO PDF ---");
+                    
+                    alert("Texto extraído! Verifique o console do navegador (pressione F12).");
+
+                } catch (error) {
+                    console.error("Erro ao processar o PDF:", error);
+                    alert("Ocorreu um erro ao ler o arquivo PDF.");
+                } finally {
+                    document.getElementById("loading").style.display = "none";
+                }
+            };
+            fileReader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
+</html>
