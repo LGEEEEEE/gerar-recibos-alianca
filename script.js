@@ -43,9 +43,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /**
-     * ATUALIZADO: Processa imagens com feedback de progresso do Tesseract.
-     */
     async function handleImageFile(file) {
         const reader = new FileReader();
         reader.onload = e => imagemComprovante.src = e.target.result;
@@ -53,32 +50,24 @@ document.addEventListener('DOMContentLoaded', () => {
         comprovanteAnexadoContainer.classList.remove('hidden');
 
         try {
-            // NOVO: Cria um worker do Tesseract para obter o status do progresso
             const worker = await Tesseract.createWorker('por', 1, {
                 logger: m => {
-                    console.log(m); // Para depuração
                     if (m.status === 'recognizing text') {
                         const progress = (m.progress * 100).toFixed(0);
                         dropAreaText.textContent = `Analisando imagem... ${progress}%`;
                     }
                 },
             });
-
             const { data: { text } } = await worker.recognize(file);
-            await worker.terminate(); // Encerra o worker para liberar memória
-            
+            await worker.terminate();
             parseTextAndFillForm(text);
             setSuccessFeedback('Imagem lida com sucesso!');
-
         } catch (error) {
             console.error('Erro no OCR:', error);
             setErrorFeedback('Erro ao ler a imagem.');
         }
     }
 
-    /**
-     * ATUALIZADO: Processa PDFs com feedback de progresso por página.
-     */
     async function handlePdfFile(file) {
         comprovanteAnexadoContainer.classList.add('hidden'); 
         const reader = new FileReader();
@@ -87,20 +76,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const pdf = await pdfjsLib.getDocument({ data: this.result }).promise;
                 const totalPages = pdf.numPages;
                 let fullText = '';
-
                 for (let i = 1; i <= totalPages; i++) {
-                    // NOVO: Calcula e exibe o progresso por página
                     const progress = ((i / totalPages) * 100).toFixed(0);
                     dropAreaText.textContent = `Lendo PDF... Página ${i} de ${totalPages} (${progress}%)`;
-
                     const page = await pdf.getPage(i);
                     const textContent = await page.getTextContent();
                     fullText += textContent.items.map(item => item.str).join('\n');
                 }
-                
                 parseTextAndFillForm(fullText);
                 setSuccessFeedback('PDF lido com sucesso!');
-
             } catch (error) {
                 console.error('Erro ao ler PDF:', error);
                 setErrorFeedback('Erro ao processar o PDF.');
@@ -109,7 +93,9 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.readAsArrayBuffer(file);
     }
     
-    // A função de parse (Regex) continua a mesma
+    /**
+     * ATUALIZADO: Inclui Regex para a data do pagamento.
+     */
     function parseTextAndFillForm(text) {
         console.log("Texto para análise:", text);
 
@@ -118,7 +104,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return match ? match[1].trim() : '';
         };
 
+        // Expressões Regulares
         const valorRegex = /R\$\s*([\d.,]+)/;
+        const dataRegex = /(\d{2}\/\d{2}\/\d{4})/; // NOVO: Regex para a data
         const recebedorNomeRegex = /Recebedor\n(.+)/;
         const recebedorCnpjRegex = /Recebedor(?:.|\n)*?CNPJ\n([\d.\/\\-]+)/;
         const pagadorNomeRegex = /Pagador\n(.+)/;
@@ -128,11 +116,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const devedorRegex = /Devedor:\s*(.+)/;
         const instPagadorRegex = /Pagador(?:.|\n)*?Instituição\n([\s\S]*?BCO DO BRASIL S\.A)/;
 
+        // Preenche o formulário
         document.getElementById('valor').value = extractData(valorRegex);
+        document.getElementById('dataPagamento').value = extractData(dataRegex); // NOVO: Preenche o campo de data
         document.getElementById('nomeRecebedor').value = extractData(recebedorNomeRegex);
         document.getElementById('cnpjRecebedor').value = extractData(recebedorCnpjRegex);
         document.getElementById('nomePagador').value = extractData(pagadorNomeRegex);
-
+        
         let cnpjPagadorLimpo = extractData(pagadorCnpjRegex).replace(/[.,]/g, '').replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
         document.getElementById('cnpjPagador').value = cnpjPagadorLimpo;
         
@@ -146,29 +136,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // --- Funções de Feedback e UI (sem alterações) ---
-    function setProcessingFeedback() {
-        dropArea.className = 'processing';
-        loadingSpinner.classList.remove('hidden');
-        dropAreaText.textContent = 'Iniciando leitura...'; // Mensagem inicial
-    }
+    // Funções de Feedback e UI (sem alterações)
+    function setProcessingFeedback() { /* ... */ }
+    function setSuccessFeedback(message) { /* ... */ }
+    function setErrorFeedback(message) { /* ... */ }
 
-    function setSuccessFeedback(message) {
-        dropArea.className = 'success';
-        loadingSpinner.classList.add('hidden');
-        dropAreaText.innerHTML = `<span style="color: #28a745; font-weight: bold;">${message}</span>`;
-    }
-    
-    function setErrorFeedback(message) {
-        dropArea.className = 'error';
-        loadingSpinner.classList.add('hidden');
-        dropAreaText.innerHTML = `<span style="color: #dc3545; font-weight: bold;">${message}</span>`;
-    }
-
-    // A lógica do botão de gerar continua a mesma
+    /**
+     * ATUALIZADO: Usa a data do formulário ou a data atual.
+     */
     gerarBtn.addEventListener('click', () => {
+        // NOVO: Lógica para a data
+        let dataPagamento = document.getElementById('dataPagamento').value;
+        if (!dataPagamento) { // Se o campo estiver vazio
+            dataPagamento = new Date().toLocaleDateString('pt-BR'); // Usa a data de hoje
+        }
+
         document.getElementById('reciboValor').textContent = document.getElementById('valor').value;
-        document.getElementById('reciboData').textContent = new Date().toLocaleDateString('pt-BR');
+        document.getElementById('reciboData').textContent = dataPagamento; // Usa a data definida
         document.getElementById('reciboNomeRecebedor').textContent = document.getElementById('nomeRecebedor').value;
         document.getElementById('reciboCnpjRecebedor').textContent = document.getElementById('cnpjRecebedor').value;
         document.getElementById('reciboInstRecebedor').textContent = document.getElementById('instRecebedor').value;
@@ -184,4 +168,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     imprimirBtn.addEventListener('click', () => { window.print(); });
+
+    // Funções de feedback completas para referência
+    function setProcessingFeedback() {
+        dropArea.className = 'processing';
+        loadingSpinner.classList.remove('hidden');
+        dropAreaText.textContent = 'Iniciando leitura...';
+    }
+
+    function setSuccessFeedback(message) {
+        dropArea.className = 'success';
+        loadingSpinner.classList.add('hidden');
+        dropAreaText.innerHTML = `<span style="color: #28a745; font-weight: bold;">${message}</span>`;
+    }
+    
+    function setErrorFeedback(message) {
+        dropArea.className = 'error';
+        loadingSpinner.classList.add('hidden');
+        dropAreaText.innerHTML = `<span style="color: #dc3545; font-weight: bold;">${message}</span>`;
+    }
 });
