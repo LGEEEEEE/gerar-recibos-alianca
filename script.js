@@ -43,6 +43,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    /**
+     * ATUALIZADO: Processa imagens com feedback de progresso do Tesseract.
+     */
     async function handleImageFile(file) {
         const reader = new FileReader();
         reader.onload = e => imagemComprovante.src = e.target.result;
@@ -50,31 +53,54 @@ document.addEventListener('DOMContentLoaded', () => {
         comprovanteAnexadoContainer.classList.remove('hidden');
 
         try {
-            const worker = await Tesseract.createWorker('por');
+            // NOVO: Cria um worker do Tesseract para obter o status do progresso
+            const worker = await Tesseract.createWorker('por', 1, {
+                logger: m => {
+                    console.log(m); // Para depuração
+                    if (m.status === 'recognizing text') {
+                        const progress = (m.progress * 100).toFixed(0);
+                        dropAreaText.textContent = `Analisando imagem... ${progress}%`;
+                    }
+                },
+            });
+
             const { data: { text } } = await worker.recognize(file);
-            await worker.terminate();
+            await worker.terminate(); // Encerra o worker para liberar memória
+            
             parseTextAndFillForm(text);
             setSuccessFeedback('Imagem lida com sucesso!');
+
         } catch (error) {
             console.error('Erro no OCR:', error);
             setErrorFeedback('Erro ao ler a imagem.');
         }
     }
 
+    /**
+     * ATUALIZADO: Processa PDFs com feedback de progresso por página.
+     */
     async function handlePdfFile(file) {
         comprovanteAnexadoContainer.classList.add('hidden'); 
         const reader = new FileReader();
         reader.onload = async function() {
             try {
                 const pdf = await pdfjsLib.getDocument({ data: this.result }).promise;
+                const totalPages = pdf.numPages;
                 let fullText = '';
-                for (let i = 1; i <= pdf.numPages; i++) {
+
+                for (let i = 1; i <= totalPages; i++) {
+                    // NOVO: Calcula e exibe o progresso por página
+                    const progress = ((i / totalPages) * 100).toFixed(0);
+                    dropAreaText.textContent = `Lendo PDF... Página ${i} de ${totalPages} (${progress}%)`;
+
                     const page = await pdf.getPage(i);
                     const textContent = await page.getTextContent();
                     fullText += textContent.items.map(item => item.str).join('\n');
                 }
+                
                 parseTextAndFillForm(fullText);
                 setSuccessFeedback('PDF lido com sucesso!');
+
             } catch (error) {
                 console.error('Erro ao ler PDF:', error);
                 setErrorFeedback('Erro ao processar o PDF.');
@@ -83,40 +109,30 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.readAsArrayBuffer(file);
     }
     
-    /**
-     * ATUALIZADO: Versão final com Regex flexíveis para PDF e Imagem/OCR.
-     */
+    // A função de parse (Regex) continua a mesma
     function parseTextAndFillForm(text) {
         console.log("Texto para análise:", text);
 
-        // Função auxiliar para extrair e limpar os dados
         const extractData = (regex, sourceText = text) => {
             const match = sourceText.match(regex);
             return match ? match[1].trim() : '';
         };
 
-        // --- EXPRESSÕES REGULARES UNIVERSAIS ---
-
         const valorRegex = /R\$\s*([\d.,]+)/;
         const recebedorNomeRegex = /Recebedor\n(.+)/;
-        // Procura por um CNPJ depois da palavra "Recebedor", não importando o que há no meio
         const recebedorCnpjRegex = /Recebedor(?:.|\n)*?CNPJ\n([\d.\/\\-]+)/;
         const pagadorNomeRegex = /Pagador\n(.+)/;
-        // Procura por um CNPJ depois da palavra "Pagador" e aceita erros de OCR
         const pagadorCnpjRegex = /Pagador(?:.|\n)*?CNPJ\n([\d.,\/-]+)/;
         const agenciaRegex = /Agência\n([\d-]+)/;
         const contaRegex = /Conta\n([\d-]+)/;
         const devedorRegex = /Devedor:\s*(.+)/;
         const instPagadorRegex = /Pagador(?:.|\n)*?Instituição\n([\s\S]*?BCO DO BRASIL S\.A)/;
 
-
-        // --- Preenche o formulário ---
         document.getElementById('valor').value = extractData(valorRegex);
         document.getElementById('nomeRecebedor').value = extractData(recebedorNomeRegex);
         document.getElementById('cnpjRecebedor').value = extractData(recebedorCnpjRegex);
         document.getElementById('nomePagador').value = extractData(pagadorNomeRegex);
 
-        // Limpa o CNPJ do pagador de possíveis erros de OCR
         let cnpjPagadorLimpo = extractData(pagadorCnpjRegex).replace(/[.,]/g, '').replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
         document.getElementById('cnpjPagador').value = cnpjPagadorLimpo;
         
@@ -124,7 +140,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('contaPagador').value = extractData(contaRegex);
         document.getElementById('devedor').value = extractData(devedorRegex);
 
-        // Lógica para Instituição do Pagador
         const instPagadorMatch = extractData(instPagadorRegex);
         if (instPagadorMatch) {
              document.getElementById('instPagador').value = instPagadorMatch.split('\n').pop() || "BCO DO BRASIL S.A.";
@@ -135,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function setProcessingFeedback() {
         dropArea.className = 'processing';
         loadingSpinner.classList.remove('hidden');
-        dropAreaText.textContent = 'Processando arquivo...';
+        dropAreaText.textContent = 'Iniciando leitura...'; // Mensagem inicial
     }
 
     function setSuccessFeedback(message) {
@@ -150,6 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
         dropAreaText.innerHTML = `<span style="color: #dc3545; font-weight: bold;">${message}</span>`;
     }
 
+    // A lógica do botão de gerar continua a mesma
     gerarBtn.addEventListener('click', () => {
         document.getElementById('reciboValor').textContent = document.getElementById('valor').value;
         document.getElementById('reciboData').textContent = new Date().toLocaleDateString('pt-BR');
